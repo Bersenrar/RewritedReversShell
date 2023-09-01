@@ -18,13 +18,13 @@ def execute(cmd:str)->bytes:
             result = f"Something go wrong when trying to change directory:\n    {e}".encode()
     elif "read" in cmd:
         try:
-            with open(cmd[1], mode="rb", encoding="utf-8") as f:
+            with open(cmd[1], mode="rb") as f:
                 result = f.read()
         except Exception as e:
             result = f"Something go wrong while opening and reading file:\n     {e}".encode()
     elif "touch" in cmd:
         try:
-            with open(cmd[1], "wb", encoding="utf-8"):
+            with open(cmd[1], "wb"):
                 result = b"0"
         except Exception as e:
             result = f"Something go wrong while creating file:\n    {e}".encode()
@@ -51,6 +51,33 @@ class NetCat:
         self.port = port
         self.kitty_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+    @staticmethod
+    def write_to_file_client(client, path=None, mode="w"):
+        try:
+            f = open(path, mode, encoding="utf-8")
+            while True:
+                client.send(b">")
+                part = client.recv(500)
+                if ".exit" in part.decode():
+                    break
+                f.write(part.decode())
+            f.close()
+            result = b"0"
+        except Exception as e:
+            result = f"Something go wrong while writing in file:\n      {e}".encode()
+        client.send(result)
+
+    @staticmethod
+    def write_to_file_server(conn: socket.socket):
+        while True:
+            invitation = conn.recv(500).decode().strip()
+            msg = input(f"{invitation} ") + "\n"
+            conn.send(msg.encode())
+            if ".exit" in msg:
+                break
+        result = conn.recv(500)
+        print(result.decode().strip())
+
     def server_mode(self):
         '''
         Okay maybe that's sound disgusting but despite that f called server mode this func realising client (reverse
@@ -69,6 +96,13 @@ class NetCat:
                     buffer = buffer + part
 
                 print(buffer.decode())
+
+                if "write" in buffer.decode():
+                    buffer = buffer.decode().split()
+                    path, mode = buffer[1], buffer[2] if len(buffer) >= 3 else "w"
+                    self.write_to_file_client(client=client, path=path, mode=mode)
+                    continue
+
                 cmd_output = execute(buffer.decode(DECODING_CONST))
 
                 start, stop, step = 0, 500, 500
@@ -100,6 +134,10 @@ class NetCat:
                 cmd = cmd + "\n"
                 connected_client.send(cmd.encode())
 
+                if "write" in cmd:
+                    self.write_to_file_server(conn=connected_client)
+                    continue
+
                 response = b""
                 while True:
                     part = connected_client.recv(500)
@@ -115,7 +153,7 @@ class NetCat:
     def run(self):
         '''
         Function which will start NetCat in specified mode
-        
+
         :return: None
         '''
         if self.mode == "1":
